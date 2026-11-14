@@ -1,5 +1,4 @@
 ***
-  -- Customer Cohort & Revenue Retention Analysis
 
 CREATE DATABASE IF NOT EXISTS SALES;
 USE SALES;
@@ -520,102 +519,7 @@ VALUES
 ('200264', '71053', 'WHITE METAL LANTERN', 2, '08/14/2025 15:00', 3.39, '', 'Germany');
 
 
+***
 
-
-USE sales;
-
-WITH base AS (
-    -- =========================================================
-    -- Step 1: Clean + transform raw transaction lines
-    -- - Convert InvoiceDate (string) to DATETIME as purchase_date
-    -- - Calculate sale_value = Quantity * UnitPrice
-    -- - Filter out invalid/irrelevant transactions
-    -- =========================================================
-    SELECT
-        CustomerID,
-        STR_TO_DATE(InvoiceDate, '%m/%d/%Y %H:%i') AS purchase_date, -- Converts InvoiceDate string into DATETIME
-        ROUND(Quantity * UnitPrice, 2) AS sale_value,                
-        InvoiceNo
-    FROM retail
-    WHERE CustomerID IS NOT NULL                                      
-      AND CustomerID <> ''                                            
-      AND InvoiceNo NOT LIKE 'C%'                                    
-      AND Quantity > 0                                           
-      AND UnitPrice > 0                                            
-),
-
-first_purchase AS (
-    -- =========================================================
-    -- Step 2: Find each customer's first purchase date
-    -- This determines the cohort assignment month.
-    -- =========================================================
-    SELECT
-        CustomerID,
-        MIN(purchase_date) AS first_purchase_date
-    FROM base
-    GROUP BY CustomerID
-),
-
-cohort_map AS (
-    -- =========================================================
-    -- Step 3: Assign each transaction line to a cohort month
-    -- - cohort = first purchase month (YYYY-MM-01)
-    -- - cohort_month = Month_0, Month_1, ... based on month difference
-    -- =========================================================
-    SELECT
-        b.CustomerID,
-        b.sale_value,
-        DATE_FORMAT(fp.first_purchase_date, '%Y-%m-01') AS cohort,     -- Convert the exact purchase timestamp to the 1st of the month
-        CONCAT('Month_',
-            PERIOD_DIFF(
-                DATE_FORMAT(b.purchase_date, '%Y%m'),
-                DATE_FORMAT(fp.first_purchase_date, '%Y%m'))
-        ) AS cohort_month                                            
-    FROM base b
-    JOIN first_purchase fp
-      ON b.CustomerID = fp.CustomerID
-)
-
--- =========================================================
--- Step 4: Pivot the results
--- - Customer retention counts: Month_0_Customers ... Month_12_Customers
--- - Cohort-wise revenue sums: Month_0_Sales ... Month_12_Sales
--- =========================================================
-SELECT
-    cohort,
-
-    -- Customer retention counts
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_0'  THEN CustomerID END) AS Month_0_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_1'  THEN CustomerID END) AS Month_1_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_2'  THEN CustomerID END) AS Month_2_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_3'  THEN CustomerID END) AS Month_3_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_4'  THEN CustomerID END) AS Month_4_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_5'  THEN CustomerID END) AS Month_5_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_6'  THEN CustomerID END) AS Month_6_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_7'  THEN CustomerID END) AS Month_7_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_8'  THEN CustomerID END) AS Month_8_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_9'  THEN CustomerID END) AS Month_9_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_10' THEN CustomerID END) AS Month_10_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_11' THEN CustomerID END) AS Month_11_Customers,
-    COUNT(DISTINCT CASE WHEN cohort_month = 'Month_12' THEN CustomerID END) AS Month_12_Customers,
-
-    -- Cohort-wise revenue sums
-    SUM(CASE WHEN cohort_month = 'Month_0'  THEN sale_value ELSE 0 END) AS Month_0_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_1'  THEN sale_value ELSE 0 END) AS Month_1_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_2'  THEN sale_value ELSE 0 END) AS Month_2_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_3'  THEN sale_value ELSE 0 END) AS Month_3_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_4'  THEN sale_value ELSE 0 END) AS Month_4_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_5'  THEN sale_value ELSE 0 END) AS Month_5_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_6'  THEN sale_value ELSE 0 END) AS Month_6_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_7'  THEN sale_value ELSE 0 END) AS Month_7_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_8'  THEN sale_value ELSE 0 END) AS Month_8_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_9'  THEN sale_value ELSE 0 END) AS Month_9_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_10' THEN sale_value ELSE 0 END) AS Month_10_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_11' THEN sale_value ELSE 0 END) AS Month_11_Sales,
-    SUM(CASE WHEN cohort_month = 'Month_12' THEN sale_value ELSE 0 END) AS Month_12_Sales
-
-FROM cohort_map
-GROUP BY cohort                    
-ORDER BY cohort;
 
 
