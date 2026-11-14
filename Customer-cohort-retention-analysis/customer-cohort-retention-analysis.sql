@@ -522,10 +522,7 @@ VALUES
 
 USE sales;
 
-
 -- Customer Cohort & Revenue Retention Analysis
--- Reporting cutoff: 31 January 2025
--- MySQL 8.0+
 
 WITH base AS (
     -- Step 1: Clean and transform transaction lines.
