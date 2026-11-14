@@ -1,3 +1,24 @@
+## Cohort Analysis & Customer Retention
+
+**Cohort Analysis** is a powerful analytical technique used by businesses to group customers based on a shared characteristic—specifically, their initial acquisition month (their first purchase date). This approach helps evaluate long-term customer behavior, retention trends, and revenue growth over time.
+
+### Why We Should Go Through This Process
+
+* **Measure Customer Retention:** Tracks how effectively a business retains customers month-over-month following their initial purchase.
+* **Identify Drop-Off Points:** Pinpoints critical lifecycle stages where customer engagement and activity decline.
+* **Evaluate Cohort-Wise Sales Value:** Analyzes revenue generation across a 12-month customer lifecycle (`Month_0` to `Month_12`) to understand Customer Lifetime Value (LTV).
+* **Optimize Marketing Strategies:** Empowers data-driven decisions for targeted retention campaigns, re-engagement emails, and loyalty programs.
+
+### How the SQL Script Works
+
+The provided SQL script processes raw retail transaction data through a structured multi-step pipeline:
+1. **Data Cleaning:** Filters out returns (invoices starting with 'C'), missing customer IDs, and invalid pricing or quantities.
+2. **Cohort Identification:** Uses window functions (`MIN(PURCHASE_DATE) OVER (PARTITION BY CUSTOMERID)`) to pinpoint each customer's exact entry month.
+3. **Period Offset Calculation:** Computes the month difference between subsequent purchases and the initial cohort date using `PERIOD_DIFF`.
+4. **Conditional Aggregation:** Pivots row-level transactional data into a wide-format matrix displaying active customer counts and sales performance from `Month_0` to `Month_12`.
+
+
+
 # Database Setup
 
 * Create a database named `SALES`.
