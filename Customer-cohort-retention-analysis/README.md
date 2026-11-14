@@ -37,10 +37,7 @@ CREATE TABLE IF NOT EXISTS RETAIL (
     CustomerID VARCHAR(20),
     Country VARCHAR(50)
 );
-```
 
-### Sample Data Added
-```
 INSERT INTO RETAIL
 (InvoiceNo, StockCode, Description, Quantity, InvoiceDate, UnitPrice, CustomerID, Country)
 VALUES
@@ -550,31 +547,30 @@ VALUES
 ```
 USE sales;
 
+
+-- Customer Cohort & Revenue Retention Analysis
+-- Reporting cutoff: 31 January 2025
+-- MySQL 8.0+
+
 WITH base AS (
-    -- =========================================================
-    -- Step 1: Clean + transform raw transaction lines
-    -- - Convert InvoiceDate (string) to DATETIME as purchase_date
-    -- - Calculate sale_value = Quantity * UnitPrice
-    -- - Filter out invalid/irrelevant transactions
-    -- =========================================================
+    -- Step 1: Clean and transform transaction lines.
+    -- Keep all dates here so first_purchase is calculated using the full history.
     SELECT
         CustomerID,
-        STR_TO_DATE(InvoiceDate, '%m/%d/%Y %H:%i') AS purchase_date, -- Converts InvoiceDate string into DATETIME
-        ROUND(Quantity * UnitPrice, 2) AS sale_value,                
+        STR_TO_DATE(InvoiceDate, '%m/%d/%Y %H:%i') AS purchase_date,
+        ROUND(Quantity * UnitPrice, 2) AS sale_value,
         InvoiceNo
     FROM retail
-    WHERE CustomerID IS NOT NULL                                      
-      AND CustomerID <> ''                                            
-      AND InvoiceNo NOT LIKE 'C%'                                    
-      AND Quantity > 0                                           
-      AND UnitPrice > 0                                            
+    WHERE CustomerID IS NOT NULL
+      AND TRIM(CustomerID) <> ''
+      AND InvoiceNo NOT LIKE 'C%'
+      AND Quantity > 0
+      AND UnitPrice > 0
+      AND STR_TO_DATE(InvoiceDate, '%m/%d/%Y %H:%i') IS NOT NULL
 ),
 
 first_purchase AS (
-    -- =========================================================
-    -- Step 2: Find each customer's first purchase date
-    -- This determines the cohort assignment month.
-    -- =========================================================
+    -- Step 2: Find each customer's true first purchase from all available history.
     SELECT
         CustomerID,
         MIN(purchase_date) AS first_purchase_date
@@ -583,34 +579,30 @@ first_purchase AS (
 ),
 
 cohort_map AS (
-    -- =========================================================
-    -- Step 3: Assign each transaction line to a cohort month
-    -- - cohort = first purchase month (YYYY-MM-01)
-    -- - cohort_month = Month_0, Month_1, ... based on month difference
-    -- =========================================================
+    -- Step 3: Map transactions to cohort month.
+    -- IMPORTANT: Activity is limited to the reporting cutoff.
     SELECT
         b.CustomerID,
+        b.purchase_date,
         b.sale_value,
-        DATE_FORMAT(fp.first_purchase_date, '%Y-%m-01') AS cohort,-- Convert the exact purchase timestamp to the 1st of the month
-        CONCAT('Month_',
+        DATE_FORMAT(fp.first_purchase_date, '%Y-%m-01') AS cohort,
+        CONCAT(
+            'Month_',
             PERIOD_DIFF(
                 DATE_FORMAT(b.purchase_date, '%Y%m'),
-                DATE_FORMAT(fp.first_purchase_date, '%Y%m'))
-        ) AS cohort_month                                            
+                DATE_FORMAT(fp.first_purchase_date, '%Y%m')
+            )
+        ) AS cohort_month
     FROM base b
-    JOIN first_purchase fp
-      ON b.CustomerID = fp.CustomerID
+    INNER JOIN first_purchase fp
+        ON b.CustomerID = fp.CustomerID
+    WHERE b.purchase_date <= '2025-01-31 23:59:59'
 )
 
--- =========================================================
--- Step 4: Pivot the results
--- - Customer retention counts: Month_0_Customers ... Month_12_Customers
--- - Cohort-wise revenue sums: Month_0_Sales ... Month_12_Sales
--- =========================================================
+-- Step 4: Pivot customer retention and revenue by cohort month.
 SELECT
     cohort,
 
-    -- Customer retention counts
     COUNT(DISTINCT CASE WHEN cohort_month = 'Month_0'  THEN CustomerID END) AS Month_0_Customers,
     COUNT(DISTINCT CASE WHEN cohort_month = 'Month_1'  THEN CustomerID END) AS Month_1_Customers,
     COUNT(DISTINCT CASE WHEN cohort_month = 'Month_2'  THEN CustomerID END) AS Month_2_Customers,
@@ -625,7 +617,6 @@ SELECT
     COUNT(DISTINCT CASE WHEN cohort_month = 'Month_11' THEN CustomerID END) AS Month_11_Customers,
     COUNT(DISTINCT CASE WHEN cohort_month = 'Month_12' THEN CustomerID END) AS Month_12_Customers,
 
-    -- Cohort-wise revenue sums
     SUM(CASE WHEN cohort_month = 'Month_0'  THEN sale_value ELSE 0 END) AS Month_0_Sales,
     SUM(CASE WHEN cohort_month = 'Month_1'  THEN sale_value ELSE 0 END) AS Month_1_Sales,
     SUM(CASE WHEN cohort_month = 'Month_2'  THEN sale_value ELSE 0 END) AS Month_2_Sales,
@@ -641,7 +632,18 @@ SELECT
     SUM(CASE WHEN cohort_month = 'Month_12' THEN sale_value ELSE 0 END) AS Month_12_Sales
 
 FROM cohort_map
-GROUP BY cohort                    
+WHERE cohort IN (
+    -- Show the latest 12 cohort months, ending no later than January 2025.
+    SELECT cohort
+    FROM (
+        SELECT DISTINCT cohort
+        FROM cohort_map
+        WHERE cohort <= '2025-01-01'
+        ORDER BY cohort DESC
+        LIMIT 12
+    ) AS latest_cohorts
+)
+GROUP BY cohort
 ORDER BY cohort;
 ```
 
@@ -649,41 +651,37 @@ ORDER BY cohort;
 ## Cohort Analysis Output
 The following table shows cohort-wise customer count across different lifecycle months.
 
-| Cohort   | Month_0_Customers | Month_1_Customers | Month_2_Customers | Month_3_Customers | Month_4_Customers | Month_5_Customers | Month_6_Customers | Month_7_Customers | Month_8_Customers | Month_9_Customers | Month_10_Customers | Month_11_Customers | Month_12_Customers |
-|----------|-------------------|-------------------|-------------------|-------------------|-------------------|-------------------|-------------------|-------------------|-------------------|-------------------|--------------------|--------------------|--------------------|
-| 1/1/2024 | 5 | 1 | 3 | 1 | 2 | 0 | 2 | 0 | 1 | 0 | 1 | 0 | 4 |
-| 2/1/2024 | 5 | 1 | 5 | 2 | 2 | 0 | 0 | 0 | 2 | 0 | 1 | 0 | 2 |
-| 3/1/2024 | 5 | 1 | 2 | 1 | 1 | 0 | 4 | 0 | 2 | 0 | 2 | 0 | 2 |
-| 4/1/2024 | 4 | 1 | 2 | 2 | 3 | 0 | 0 | 0 | 1 | 0 | 1 | 0 | 2 |
-| 5/1/2024 | 4 | 1 | 3 | 1 | 1 | 0 | 1 | 0 | 2 | 0 | 1 | 0 | 2 |
-| 6/1/2024 | 4 | 0 | 2 | 3 | 1 | 0 | 2 | 0 | 1 | 0 | 1 | 0 | 2 |
-| 7/1/2024 | 4 | 3 | 2 | 1 | 1 | 0 | 2 | 0 | 1 | 0 | 1 | 0 | 1 |
-| 8/1/2024 | 4 | 1 | 1 | 3 | 1 | 0 | 2 | 0 | 1 | 0 | 2 | 0 | 1 |
-| 9/1/2024 | 4 | 2 | 2 | 1 | 2 | 0 | 1 | 0 | 0 | 0 | 2 | 0 | 2 |
-| 10/1/2024 | 4 | 0 | 0 | 1 | 1 | 0 | 2 | 0 | 3 | 0 | 3 | 0 | 2 |
-| 11/1/2024 | 4 | 1 | 0 | 2 | 0 | 0 | 2 | 0 | 3 | 0 | 3 | 0 | 1 |
-| 12/1/2024 | 4 | 1 | 1 | 1 | 2 | 0 | 2 | 0 | 2 | 0 | 1 | 0 | 2 |
-| 1/1/2025 | 4 | 3 | 1 | 1 | 1 | 0 | 2 | 0 | 2 | 0 | 1 | 0 | 1 |
-| 2/1/2025 | 4 | 0 | 3 | 1 | 2 | 0 | 1 | 0 | 4 | 0 | 0 | 0 | 1 |
+| Cohort | Month_0_Customers | Month_1_Customers | Month_2_Customers | Month_3_Customers | Month_4_Customers | Month_5_Customers | Month_6_Customers | Month_7_Customers | Month_8_Customers | Month_9_Customers | Month_10_Customers | Month_11_Customers | Month_12_Customers |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2/1/2024 | 5 | 1 | 5 | 2 | 2 | 0 | 0 | 0 | 2 | 0 | 1 | 0 | 0 |
+| 3/1/2024 | 5 | 1 | 2 | 1 | 1 | 0 | 4 | 0 | 2 | 0 | 2 | 0 | 0 |
+| 4/1/2024 | 4 | 1 | 2 | 2 | 3 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| 5/1/2024 | 4 | 1 | 3 | 1 | 1 | 0 | 1 | 0 | 2 | 0 | 0 | 0 | 0 |
+| 6/1/2024 | 4 | 0 | 2 | 3 | 1 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 7/1/2024 | 4 | 3 | 2 | 1 | 1 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 8/1/2024 | 4 | 1 | 1 | 3 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 9/1/2024 | 4 | 2 | 2 | 1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 10/1/2024 | 4 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 11/1/2024 | 4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 12/1/2024 | 4 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 1/1/2025 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 
 ## Cohort Sales Output
 
 The following table shows cohort-wise revenue contribution across different lifecycle months.
 
-| Cohort   | Month_0_Sales | Month_1_Sales | Month_2_Sales | Month_3_Sales | Month_4_Sales | Month_5_Sales | Month_6_Sales | Month_7_Sales | Month_8_Sales | Month_9_Sales | Month_10_Sales | Month_11_Sales | Month_12_Sales |
-|----------|---------------|---------------|---------------|---------------|---------------|---------------|---------------|---------------|---------------|---------------|----------------|----------------|----------------|
-| 1/1/2024 | 136.13 | 23.97 | 132.71 | 31.59 | 265.46 | 0 | 9.11 | 0 | 51.66 | 0 | 10.08 | 0 | 176.91 |
-| 2/1/2024 | 399.31 | 16.15 | 166.41 | 30.57 | 19.14 | 0 | 0 | 0 | 113.88 | 0 | 10.95 | 0 | 79.84 |
-| 3/1/2024 | 136.34 | 32.26 | 219.30 | 22.06 | 109.87 | 0 | 137.33 | 0 | 115.43 | 0 | 28.62 | 0 | 65.80 |
-| 4/1/2024 | 508.50 | 12.95 | 73.15 | 21.73 | 41.86 | 0 | 0 | 0 | 193.38 | 0 | 69.82 | 0 | 352.02 |
-| 5/1/2024 | 196.87 | 44.45 | 125.25 | 36.78 | 15.72 | 0 | 61.90 | 0 | 39.75 | 0 | 26.26 | 0 | 101.94 |
-| 6/1/2024 | 201.56 | 0 | 45.03 | 110.26 | 7.26 | 0 | 95.48 | 0 | 26.16 | 0 | 21.20 | 0 | 78.07 |
-| 7/1/2024 | 113.78 | 81.14 | 32.28 | 81.60 | 38.55 | 0 | 318.82 | 0 | 38.55 | 0 | 13.04 | 0 | 3.85 |
-| 8/1/2024 | 135.12 | 4.98 | 5.90 | 77.29 | 16.80 | 0 | 133.61 | 0 | 22.48 | 0 | 16.95 | 0 | 24.26 |
-| 9/1/2024 | 63.78 | 30.15 | 45.40 | 5.93 | 78.34 | 0 | 5.72 | 0 | 0 | 0 | 53.75 | 0 | 103.43 |
-| 10/1/2024 | 109.29 | 0 | 0 | 27.98 | 199.22 | 0 | 143.71 | 0 | 112.55 | 0 | 254.15 | 0 | 77.02 |
-| 11/1/2024 | 45.71 | 10.45 | 0 | 39.04 | 0 | 0 | 50.25 | 0 | 286.42 | 0 | 466.95 | 0 | 15.15 |
-| 12/1/2024 | 306.98 | 18.51 | 7.58 | 29.12 | 43.16 | 0 | 23.39 | 0 | 178.40 | 0 | 7.69 | 0 | 129.32 |
-| 1/1/2025 | 76.49 | 181.19 | 3.52 | 14.89 | 57.41 | 0 | 121.59 | 0 | 69.98 | 0 | 32.47 | 0 | 75.80 |
-| 2/1/2025 | 78.68 | 0 | 70.25 | 9.84 | 47.30 | 0 | 13.08 | 0 | 59.32 | 0 | 0 | 0 | 24.30 |
+| Cohort | Month_0_Sales | Month_1_Sales | Month_2_Sales | Month_3_Sales | Month_4_Sales | Month_5_Sales | Month_6_Sales | Month_7_Sales | Month_8_Sales | Month_9_Sales | Month_10_Sales | Month_11_Sales | Month_12_Sales |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 2/1/2024 | 798.62 | 32.3 | 332.82 | 61.14 | 38.28 | 0 | 0 | 0 | 227.76 | 0 | 21.9 | 0 | 0 |
+| 3/1/2024 | 272.68 | 64.52 | 438.6 | 44.12 | 219.74 | 0 | 274.66 | 0 | 230.86 | 0 | 57.24 | 0 | 0 |
+| 4/1/2024 | 1017 | 25.9 | 146.3 | 43.46 | 83.72 | 0 | 0 | 0 | 386.76 | 0 | 0 | 0 | 0 |
+| 5/1/2024 | 393.74 | 88.9 | 250.5 | 73.56 | 31.44 | 0 | 123.8 | 0 | 79.5 | 0 | 0 | 0 | 0 |
+| 6/1/2024 | 403.12 | 0 | 90.06 | 220.52 | 14.52 | 0 | 190.96 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 7/1/2024 | 227.56 | 162.28 | 64.56 | 163.2 | 77.1 | 0 | 637.64 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 8/1/2024 | 270.24 | 9.96 | 11.8 | 154.58 | 33.6 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 9/1/2024 | 127.56 | 60.3 | 90.8 | 11.86 | 156.68 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 10/1/2024 | 218.58 | 0 | 0 | 55.96 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 11/1/2024 | 91.42 | 20.9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 12/1/2024 | 613.96 | 37.02 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 1/1/2025 | 152.98 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
