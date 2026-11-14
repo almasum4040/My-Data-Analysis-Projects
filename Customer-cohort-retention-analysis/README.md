@@ -1,1 +1,15 @@
+```
+CREATE DATABASE IF NOT EXISTS SALES;
+USE SALES;
 
+CREATE TABLE IF NOT EXISTS RETAIL (
+    InvoiceNo VARCHAR(20),
+    StockCode VARCHAR(20),
+    Description VARCHAR(100),
+    Quantity INT,
+    InvoiceDate VARCHAR(30),
+    UnitPrice DECIMAL(10,2),
+    CustomerID VARCHAR(20),
+    Country VARCHAR(50)
+);
+```
