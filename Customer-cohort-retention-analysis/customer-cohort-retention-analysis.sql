@@ -528,27 +528,23 @@ USE sales;
 WITH base AS (
     -- =========================================================
     -- Step 1: Clean + transform raw transaction lines
-    -- - Convert InvoiceDate (string) to DATETIME as purchase_date
-    -- - Calculate sale_value = Quantity * UnitPrice
-    -- - Filter out invalid/irrelevant transactions
     -- =========================================================
     SELECT
         CustomerID,
-        STR_TO_DATE(InvoiceDate, '%m/%d/%Y %H:%i') AS purchase_date, -- Converts InvoiceDate string into DATETIME
+        STR_TO_DATE(InvoiceDate, '%m/%d/%Y %H:%i') AS purchase_date, 
         ROUND(Quantity * UnitPrice, 2) AS sale_value,                
         InvoiceNo
-    FROM retail
-    WHERE CustomerID IS NOT NULL                                      
-      AND CustomerID <> ''                                            
+    FROM retail r
+    WHERE CustomerID IS NOT NULL                                    
+      AND CustomerID <> ''                                           
       AND InvoiceNo NOT LIKE 'C%'                                    
-      AND Quantity > 0                                           
-      AND UnitPrice > 0                                            
+      AND Quantity > 0                                               
+      AND UnitPrice > 0
 ),
 
 first_purchase AS (
     -- =========================================================
-    -- Step 2: Find each customer's first purchase date
-    -- This determines the cohort assignment month.
+    -- Step 2: Find each customer's first purchase date (All-time)
     -- =========================================================
     SELECT
         CustomerID,
@@ -557,16 +553,16 @@ first_purchase AS (
     GROUP BY CustomerID
 ),
 
+
 cohort_map AS (
     -- =========================================================
     -- Step 3: Assign each transaction line to a cohort month
-    -- - cohort = first purchase month (YYYY-MM-01)
-    -- - cohort_month = Month_0, Month_1, ... based on month difference
     -- =========================================================
     SELECT
         b.CustomerID,
+        b.purchase_date,
         b.sale_value,
-        DATE_FORMAT(fp.first_purchase_date, '%Y-%m-01') AS cohort,     -- Convert the exact purchase timestamp to the 1st of the month
+        DATE_FORMAT(fp.first_purchase_date, '%Y-%m-01') AS cohort,   
         CONCAT('Month_',
             PERIOD_DIFF(
                 DATE_FORMAT(b.purchase_date, '%Y%m'),
@@ -578,9 +574,7 @@ cohort_map AS (
 )
 
 -- =========================================================
--- Step 4: Pivot the results
--- - Customer retention counts: Month_0_Customers ... Month_12_Customers
--- - Cohort-wise revenue sums: Month_0_Sales ... Month_12_Sales
+-- Step 4: Final Pivot & Filtering (Strictly ending at January 2025 max limit)
 -- =========================================================
 SELECT
     cohort,
@@ -616,5 +610,18 @@ SELECT
     SUM(CASE WHEN cohort_month = 'Month_12' THEN sale_value ELSE 0 END) AS Month_12_Sales
 
 FROM cohort_map
+-- =========================================================================
+-- Strict Filter: Force the latest cohort month to not exceed January 2025 
+-- and retrieve the trailing 12 months.
+-- =========================================================================
+WHERE cohort IN (
+    SELECT cohort FROM (
+        SELECT DISTINCT cohort 
+        FROM cohort_map 
+        WHERE cohort <= '2025-01-01'
+        ORDER BY cohort DESC 
+        LIMIT 12
+    ) AS sub
+)
 GROUP BY cohort                    
 ORDER BY cohort;
