@@ -1,3 +1,7 @@
+# Database Setup
+
+* Create a database named `SALES`.
+
 ```
 CREATE DATABASE IF NOT EXISTS SALES;
 USE SALES;
