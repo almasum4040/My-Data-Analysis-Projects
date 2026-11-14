@@ -570,7 +570,7 @@ cohort_map AS (
     SELECT
         b.CustomerID,
         b.sale_value,
-        DATE_FORMAT(fp.first_purchase_date, '%Y-%m-01') AS cohort,     -- Convert the exact purchase timestamp to the 1st of the month
+        DATE_FORMAT(fp.first_purchase_date, '%Y-%m-01') AS cohort,-- Convert the exact purchase timestamp to the 1st of the month
         CONCAT('Month_',
             PERIOD_DIFF(
                 DATE_FORMAT(b.purchase_date, '%Y%m'),
